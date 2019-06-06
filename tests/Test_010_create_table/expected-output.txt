@@ -1,0 +1,6 @@
+DEBUG:root:Creating/replacing table
+Available : 0
+Running   : 0
+Success   : 0
+Failed    : 0
+Timeout   : 0

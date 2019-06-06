@@ -1,0 +1,7 @@
+true
+true
+false
+false
+false
+sleep 1; false
+sleep 1; true

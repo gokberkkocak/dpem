@@ -1,0 +1,18 @@
+DEBUG:root:Creating/replacing table
+DEBUG:root:Inserting into DB
+DEBUG:root:10 jobs inserted
+Available : 10
+Running   : 0
+Success   : 0
+Failed    : 0
+Timeout   : 0
+id: 00001 | status: 0 | cmd: timeout 2 bash -c 'echo 1'
+id: 00002 | status: 0 | cmd: timeout 2 bash -c 'echo 2'
+id: 00003 | status: 0 | cmd: timeout 2 bash -c 'echo 3'
+id: 00004 | status: 0 | cmd: timeout 2 bash -c 'echo 4'
+id: 00005 | status: 0 | cmd: timeout 2 bash -c 'echo 5'
+id: 00006 | status: 0 | cmd: timeout 2 bash -c 'echo 6'
+id: 00007 | status: 0 | cmd: timeout 2 bash -c 'echo 7'
+id: 00008 | status: 0 | cmd: timeout 2 bash -c 'echo 8'
+id: 00009 | status: 0 | cmd: timeout 2 bash -c 'echo 9'
+id: 00010 | status: 0 | cmd: timeout 2 bash -c 'echo 10'

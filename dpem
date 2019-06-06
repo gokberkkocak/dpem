@@ -1,0 +1,619 @@
+#!/usr/bin/env python3
+import mysql.connector.pooling
+import json
+import threading
+from subprocess import Popen, PIPE, STDOUT
+import time
+import argparse
+import sys
+import os
+import socket
+import signal
+import random
+import logging
+
+VERSION = 1.0
+
+# global job count file and enums
+CURRENT_JOB_COUNT = 0
+EXP_NOT_RUNNING = 0
+EXP_RUNNING = 1
+EXP_SUCCESS_FINISHED = 2
+EXP_FAILED_FINISHED = 3
+EXP_TIMEOUTED = 4
+JOB_FILE = ".jobfile"
+JOB_COUNTER = ".jobcounter"
+DEFAULT_CONF_LOCATION = "~/.dpem/.conf.json"
+DEFAULT_CONF_LOCATION_EXPANDED = os.path.expanduser(DEFAULT_CONF_LOCATION)
+TABLE_NAME = "experiments"
+TIMEOUT_EXIT_VALUE = 124
+SUCCESS_EXIT_VALUE = 0
+FAIL_EXIT_VALUE = 1
+PARALLEL_PROCESS = ""
+JOBCOUNTER_PROCESS = ""
+JOBFILE_PROCESS = ""
+
+
+def set_conf_file(conf_file):
+	logging.debug("Moving the conf file")
+	folder = "/".join(DEFAULT_CONF_LOCATION_EXPANDED.split("/")[:-1])+"/"
+	mkdir_process = Popen(['mkdir', '-p', folder],
+						stdout=PIPE, stderr=STDOUT)
+	print_stdout_thread(mkdir_process.stdout)
+	backup_file_if_exists(DEFAULT_CONF_LOCATION_EXPANDED)
+	copy_process = Popen(['cp', conf_file, DEFAULT_CONF_LOCATION_EXPANDED],
+						stdout=PIPE, stderr=STDOUT)
+	print_stdout_thread(copy_process.stdout)
+
+def read_conf(conf_file=DEFAULT_CONF_LOCATION_EXPANDED):
+	with open(conf_file, "r") as jf:
+		conf = json.load(jf)
+	return conf
+
+
+def open_connection(conf):
+	cnxpool = mysql.connector.pooling.MySQLConnectionPool(pool_name=pool_name(),
+														  pool_size=2,
+														  **conf)
+	return cnxpool
+
+
+def pool_name():
+	return socket.gethostname().split(".")[0]
+
+
+def create_table(db_connection):
+	logging.debug("Creating/replacing table")
+	cursor = db_connection.cursor(buffered=True)
+	drop_query = "DROP TABLE IF EXISTS {}".format(TABLE_NAME)
+	cursor.execute(drop_query)
+	create_query = "CREATE TABLE {} (id int NOT NULL AUTO_INCREMENT, command VARCHAR(500) NOT NULL, status int NOT NULL, PRIMARY KEY (id));".format(TABLE_NAME)
+	cursor.execute(create_query)
+	db_connection.commit()
+	cursor.close()
+
+
+def close_connection(db_connection):
+	db_connection.close()
+
+
+def lock_table(db_connection):
+	logging.debug("Locking table")
+	check_table_on_use(db_connection)
+	cursor = db_connection.cursor(buffered=True)
+	lock_query = 'LOCK TABLE {} write'.format(TABLE_NAME)
+	cursor.execute(lock_query)
+	db_connection.commit()
+	cursor.close()
+	logging.debug("Locked")
+
+
+def unlock_table(db_connection):
+	logging.debug("Unlocking table")
+	cursor = db_connection.cursor(buffered=True)
+	unlock_query = 'UNLOCK TABLES'
+	cursor.execute(unlock_query)
+	db_connection.commit()
+	cursor.close()
+	logging.debug("Unlocked")
+
+
+def check_table_on_use(db_connection):
+	logging.debug("Checking table use")
+	cursor = db_connection.cursor(buffered=True)
+	check_query = "SHOW OPEN TABLES WHERE in_use>0 AND `Table` = '{}' ".format(TABLE_NAME)
+	while True:
+		cursor.execute(check_query)
+		db_connection.commit()
+		count = 0
+		for _ in cursor:
+			count += 1
+		if count == 0:
+			break
+		i = random.randint(2, 10)
+		logging.debug("Waiting for {} seconds because {} use".format(i, count))
+		time.sleep(i)
+	cursor.close()
+
+
+def insert_commands_into_table(db_connection, command_file, timeout, shuffle):
+	logging.debug("Inserting into DB")
+	cursor = db_connection.cursor(buffered=True)
+	insert_query = 'INSERT INTO {} (command,status) values (%s,%s);'.format(TABLE_NAME)
+	with open(command_file, 'r') as f:
+		lines = f.readlines()
+	if shuffle:
+		random.shuffle(lines)
+	for line in lines:
+		command = line.strip()
+		if timeout != 0:
+			command = "timeout {} bash -c \'{}\'".format(timeout, command)
+		cursor.execute(insert_query, (command, EXP_NOT_RUNNING))
+	db_connection.commit()
+	cursor.close()
+	logging.debug("{} jobs inserted".format(len(lines)))
+
+
+def add_one_single_command(db_connection, command):
+	logging.debug("Requeueing job")
+	cursor = db_connection.cursor(buffered=True)
+	insert_query = 'INSERT INTO {} (command,status) values (%s,%s);'.format(TABLE_NAME)
+	cursor.execute(insert_query, (command.strip(), EXP_NOT_RUNNING))
+	db_connection.commit()
+	cursor.close()
+	logging.debug("Requeue complete")
+
+
+def fetch_jobs(db_connection, nb_jobs, shuffle):
+	logging.debug("Fetching jobs")
+	lock_table(db_connection)
+	cursor = db_connection.cursor(buffered=True)
+	if shuffle:
+		select_query = 'SELECT id, command from {} where status=%s ORDER BY RAND() LIMIT %s'.format(TABLE_NAME)
+	else:
+		select_query = 'SELECT id, command from {} where status=%s LIMIT %s'.format(TABLE_NAME)
+	update_query = 'UPDATE {} SET status = %s where id = %s'.format(TABLE_NAME)
+	cursor.execute(select_query, (EXP_NOT_RUNNING, nb_jobs))
+	commands = dict()
+	cursor2 = db_connection.cursor(buffered=True)
+	for result in cursor:
+		exp_id = result[0]
+		commands[exp_id] = decode_if_byte_array(result[1])
+		cursor2.execute(update_query, (EXP_RUNNING, exp_id))
+	logging.debug("{} jobs fetched".format(len(commands)))
+	try:
+		db_connection.commit()
+	except db.Error as error:
+		print("Table conflict, but this should never happen")
+		db_connection.rollback()
+	unlock_table(db_connection)
+	cursor.close()
+	cursor2.close()
+	return commands
+
+
+def reset_jobs_with_code(db_connection, given_code, timeout=0):
+	lock_table(db_connection)
+	cursor = db_connection.cursor(buffered=True)
+	select_query = 'SELECT id, command from {} where status=%s'.format(TABLE_NAME)
+	if timeout == 0:
+		update_query = 'UPDATE {} SET status = %s where id = %s'.format(TABLE_NAME)
+	else:
+		update_query = 'UPDATE {} SET command = %s, status = %s where id = %s'.format(TABLE_NAME)
+	cursor.execute(select_query, (given_code, ))
+	db_connection.commit()
+	cursor2 = db_connection.cursor(buffered=True)
+	for result in cursor:
+		exp_id = result[0]
+		if timeout == 0:
+			cursor2.execute(update_query, (EXP_NOT_RUNNING, exp_id))
+		else:
+			command = decode_if_byte_array(result[1])
+			command = change_timeout_with_new(command, timeout)
+			cursor2.execute(update_query, (command, EXP_NOT_RUNNING, exp_id))
+	try:
+		db_connection.commit()
+	except db.Error as error:
+		print("Table conflict, but this should never happen")
+		db_connection.rollback()
+	unlock_table(db_connection)
+	cursor.close()
+	cursor2.close()
+
+
+def decode_if_byte_array(given_input):
+	if type(given_input) == bytearray:
+		output = given_input.decode().strip()
+	else:
+		output = given_input.strip()
+	return output
+
+
+def reset_running_jobs(db_connection):
+	reset_jobs_with_code(db_connection, EXP_RUNNING)
+
+
+def reset_failed(db_connection):
+	reset_jobs_with_code(db_connection, EXP_FAILED_FINISHED)
+
+
+def reset_timeouted(db_connection, timeout):
+	reset_jobs_with_code(db_connection, timeout)
+
+
+def reset_all_jobs(db_connection):
+	lock_table(db_connection)
+	cursor = db_connection.cursor(buffered=True)
+	select_query = 'SELECT id from {} where status != %s'.format(TABLE_NAME)
+	update_query = 'UPDATE {} SET status = %s where id = %s'.format(TABLE_NAME)
+	cursor.execute(select_query, (EXP_NOT_RUNNING, ))
+	db_connection.commit()
+	cursor2 = db_connection.cursor(buffered=True)
+	for result in cursor:
+		exp_id = result[0]
+		cursor2.execute(update_query, (EXP_NOT_RUNNING, exp_id))
+	try:
+		db_connection.commit()
+	except db.Error as error:
+		print("Table conflict, but this should never happen")
+		db_connection.rollback()
+	unlock_table(db_connection)
+	cursor.close()
+	cursor2.close()
+
+
+def wrap_commands(commands, timeout):
+	"""	Wrap commands with true id command that db id can be accessed from manager when it's finished.
+					Also wrap timeout command as well if given in --run and they dont already have timeout assigned 
+	"""
+	for id in commands:
+		if timeout != 0 and not commands[id].startswith("timeout"):
+			commands[id] = "timeout {} bash -c \'{}\'".format(
+				timeout, commands[id])
+		commands[id] = "{}; r=$?; echo {} finished with $r >> {}".format(
+			commands[id], id, JOB_COUNTER)
+
+
+def show_all_jobs(db_connection):
+	cursor = db_connection.cursor(buffered=True)
+	select_query = 'SELECT id, command, status from {}'.format(TABLE_NAME)
+	cursor.execute(select_query)
+	for result in cursor:
+		if type(result[1]) == bytearray:
+			command = result[1].decode()
+		else:
+			command = result[1]
+		print("id: {} | status: {} | cmd: {}".format(
+			str(result[0]).zfill(5), result[2], command.strip()))
+	cursor.close()
+
+
+def show_jobs_with_return_code(db_connection, given_code):
+	cursor = db_connection.cursor(buffered=True)
+	select_query = 'SELECT id, command, status from {} where status = %s'.format(TABLE_NAME)
+	cursor.execute(select_query, (given_code, ))
+	for result in cursor:
+		command = decode_if_byte_array(result[1])
+		print("id: {} | status: {} | cmd: {}".format(
+			str(result[0]).zfill(5), result[2], command.strip()))
+	cursor.close()
+
+
+def show_running_jobs(db_connection):
+	show_jobs_with_return_code(db_connection, EXP_RUNNING)
+
+
+def show_failed_jobs(db_connection):
+	show_jobs_with_return_code(db_connection, EXP_FAILED_FINISHED)
+
+
+def show_successful_jobs(db_connection):
+	show_jobs_with_return_code(db_connection, EXP_SUCCESS_FINISHED)
+
+
+def show_timeouted_jobs(db_connection):
+	show_jobs_with_return_code(db_connection, EXP_TIMEOUTED)
+
+
+def show_available_jobs(db_connection):
+	show_jobs_with_return_code(db_connection, EXP_NOT_RUNNING)
+
+
+def get_command_from_db(db_connection, exp_id):
+	cursor = db_connection.cursor(buffered=True)
+	select_query = 'SELECT command from {} where id = %s'.format(TABLE_NAME)
+	cursor.execute(select_query, (exp_id, ))
+	db_connection.commit()
+	for result in cursor:
+		command = decode_if_byte_array(result[0])
+	cursor.close()
+	return command
+
+
+def show_stats(db_connection):
+	cursor = db_connection.cursor(buffered=True)
+	select_query = 'SELECT status from {}'.format(TABLE_NAME)
+	cursor.execute(select_query)
+	avail = 0
+	running = 0
+	finished = 0
+	failed = 0
+	timeout = 0
+	for result in cursor:
+		if result[0] == EXP_NOT_RUNNING:
+			avail += 1
+		elif result[0] == EXP_RUNNING:
+			running += 1
+		elif result[0] == EXP_SUCCESS_FINISHED:
+			finished += 1
+		elif result[0] == EXP_FAILED_FINISHED:
+			failed += 1
+		elif result[0] == EXP_TIMEOUTED:
+			timeout += 1
+	print("Available : {}".format(avail))
+	print("Running   : {}".format(running))
+	print("Success   : {}".format(finished))
+	print("Failed    : {}".format(failed))
+	print("Timeout   : {}".format(timeout))
+	cursor.close()
+
+
+def write_jobs_to_file(commands):
+	'''	Write the jobs to the job file
+																	increases the running job count
+	'''
+	global CURRENT_JOB_COUNT
+	with open(JOB_FILE, 'a') as f:
+		for exp_id in commands:
+			f.write("{} {}".format(commands[exp_id], "\n"))
+	CURRENT_JOB_COUNT += len(commands)
+
+
+def clean_file(given_file, with_backup=False):
+	if with_backup:
+		backup_file_if_exists(given_file)
+	open(given_file, 'w').close()
+
+
+def backup_file_if_exists(given_file):
+	# hacky way to not lose any important file
+	i = 0
+	while True:
+		if not os.path.isfile(given_file):
+			break
+		backup_file = "{}.{}".format(given_file, str(i).zfill(4))
+		if not os.path.isfile(backup_file):
+			os.rename(given_file, backup_file)
+			break
+		i += 1
+
+
+def run_parallel(nb_jobs, extra_args):
+	global PARALLEL_PROCESS
+	global JOBFILE_PROCESS
+	parallel_list = ['parallel', '--ungroup',
+					 '-j', str(nb_jobs)]+extra_args.split()
+	tail_process = Popen(['tail', '-f', '-n+0', JOB_FILE],
+						 stdout=PIPE, stderr=STDOUT)
+	parallel_process = Popen(parallel_list,
+							 stdout=PIPE, stdin=tail_process.stdout, stderr=STDOUT)
+	out_thread = threading.Thread(
+		target=print_stdout_thread, args=(parallel_process.stdout, ))
+	out_thread.setDaemon(True)
+	out_thread.start()
+	PARALLEL_PROCESS = parallel_process
+	JOBFILE_PROCESS = tail_process
+
+
+def print_stdout_thread(stdout):
+	for line in iter(stdout.readline, b''):
+		l = line.decode().strip()
+		print(l)
+
+
+def track_jobs(cnxpool, clever_requeue):
+	global JOBCOUNTER_PROCESS
+	db_connection = cnxpool.get_connection()
+	tail_process = Popen(['tail', '-f', '-n+0', JOB_COUNTER],
+						 stdout=PIPE, stderr=STDOUT)
+	out_thread = threading.Thread(
+		target=check_jobcount_thread, args=(db_connection, tail_process.stdout, ))
+	out_thread.setDaemon(True)
+	out_thread.start()
+	JOBCOUNTER_PROCESS = tail_process
+
+
+def check_jobcount_thread(db_connection, stdout):
+	global CURRENT_JOB_COUNT
+	for line in iter(stdout.readline, b''):
+		l = line.decode().strip()
+		if "finished" in l:
+			CURRENT_JOB_COUNT -= 1
+			# hacky get id
+			exp_id = int(l.split(" finished")[0].strip())
+			# hacky return value get
+			exit_value = int(l.split("finished with ")[-1].strip())
+			mark_finished(db_connection, exp_id, exit_value)
+			if exit_value == TIMEOUT_EXIT_VALUE and clever_requeue:
+				command = get_command_from_db(db_connection, exp_id)
+				command = multiple_timeout_by_2(command)
+				add_one_single_command(db_connection, command)
+	close_connection(db_connection)
+
+
+def mark_finished(db_connection, exp_id, exit_value):
+	if exit_value == SUCCESS_EXIT_VALUE:
+		status = EXP_SUCCESS_FINISHED
+	elif exit_value == TIMEOUT_EXIT_VALUE:
+		status = EXP_TIMEOUTED
+	elif exit_value == FAIL_EXIT_VALUE:
+		status = EXP_FAILED_FINISHED
+	logging.debug("Updating finished job")
+	cursor = db_connection.cursor(buffered=True)
+	update_query = 'UPDATE {} SET status = %s where id = %s'.format(TABLE_NAME)
+	cursor.execute(update_query, (status, exp_id))
+	db_connection.commit()
+	cursor.close()
+	logging.debug("Update completed.")
+
+
+def multiple_timeout_by_2(command):
+	''' Mulitple timeout by 2 when clever requeue
+	'''
+	# extract timeout
+	# timeout 1 bash -c 'command'
+	timeout = int(command.split()[1]) * 2
+	return change_timeout_with_new(command, timeout)
+
+
+def change_timeout_with_new(command, timeout):
+	''' Changes the timeout of the command
+		If the new timeout is 0, then remove timeout limitation
+	'''
+	if 'timeout' in command:
+		naked_command = command.split("\'")[1]
+	else:
+		naked_command = command
+	if timeout == 0:
+		return naked_command
+	new_command = "timeout {} bash -c \'{}\'".format(timeout, naked_command)
+	return new_command
+
+
+def get_nb_running_jobs_by_ps(process_id):
+	''' Parallel doesn't release the children unless new ones has come. So, doesn't work as wanted.
+			check https://lists.gnu.org/archive/html/bug-parallel/2014-08/msg00007.html
+	'''
+	ps_process = Popen(["ps", "-eo", "ppid"], stdout=PIPE, stderr=STDOUT)
+	grep_process = Popen(["grep", "-w", str(process_id)],
+						 stdin=ps_process.stdout, stdout=PIPE, stderr=STDOUT)
+	wc_process = Popen(["wc", "-l"], stdout=PIPE,
+					   stdin=grep_process.stdout, stderr=STDOUT)
+	for line in iter(wc_process.stdout.readline, b''):
+		nb = line.decode().strip()
+
+
+def signal_handler(sig, frame):
+	''' Handle interrupt to kill all children
+	'''
+	logging.debug("SIGINT/TERM captured, asking parallel to kill all children")
+	PARALLEL_PROCESS.kill()
+	JOBCOUNTER_PROCESS.kill()
+	JOBFILE_PROCESS.kill()
+	logging.debug("SIGNAL handling completed. Exiting now.")
+	sys.exit(1)
+
+def set_table_name(table_name):
+	global TABLE_NAME
+	TABLE_NAME = table_name
+
+def parse_arguments():
+	parser = argparse.ArgumentParser()
+	parser.add_argument('-v', '--version', action='version',
+						version='%(prog)s 1.0')
+	parser.add_argument('-c', '--config', action='store',
+						default=DEFAULT_CONF_LOCATION_EXPANDED, dest='conf', help='DB Configuration file. (Default to search for is {})'.format(DEFAULT_CONF_LOCATION))
+	parser.add_argument('-b', '--table', action='store_true',
+						dest='create_table', help='Create or empty the table in DB')
+	parser.add_argument('-l', '--load', action='store',
+						dest='command_file', help='Commands file to load')
+	parser.add_argument('-f', '--freq', action='store', dest='freq', default=15,
+						help='Time (in seconds) frequency to check db for new jobs (default: 15)')
+	parser.add_argument('-t', '--timeout', action='store', dest='timeout', type=int,
+						default=0, help='Enforce timeout by timeout command in secs. Can be used in --load and --run')
+	parser.add_argument('-q', '--auto-requeue', action='store_true', dest='auto_requeue',
+						default=False, help='When used with --timeout, it can requeue timeouted tasks for t*2 seconds')
+	parser.add_argument('-d', '--debug', action='store_true', dest='debug_mode',
+						default=False, help='Debug mode enables verbose printing')
+	parser.add_argument('-s', '--shuffle', action='store_true', dest='shuffle',
+						default=False, help='Shuffle data when loading and random run order')
+	parser.add_argument('-r', '--run', action='store_true',
+						dest='run_flag', help='Run experiments from DB')
+	parser.add_argument('-j', '--jobs', action='store', dest='nb_jobs', type=int,
+						default=1, help='Number of parallel of jobs to run (user) (default: 1)')
+	parser.add_argument('-u', '--use-table', action='store', dest='table_name', type=str,
+						help='Table to use for experiment (default: {})'.format(TABLE_NAME))
+	parser.add_argument('-k', '--keep-running', action='store_true', dest='keep_running',
+						default=False, help='Keep it running even though the DB is empty and no tasks are running')
+	parser.add_argument('--extra-args', action='store', dest='extra_args', type=str,
+						default="", help='Additional parallel arguments to pass. Use quotes')
+	parser.add_argument('--set-config', action='store', dest='set_config', type=str,
+						help='Take given conf file and save to the default conf location {}'.format(DEFAULT_CONF_LOCATION))			
+	parser.add_argument('--stats', action='store_const', const='stats',
+						dest='stats_flag', help='Experiment statistics')
+	parser.add_argument('--show-all', action='store_const', const='all',
+						dest='stats_flag', help='Print all jobs')
+	parser.add_argument('--show-avail', action='store_const', const='avail',
+						dest='stats_flag', help='Print available jobs')
+	parser.add_argument('--show-running', action='store_const', const='running',
+						dest='stats_flag', help='Print running jobs')
+	parser.add_argument('--show-failed', action='store_const', const='failed',
+						dest='stats_flag', help='Print failed jobs')
+	parser.add_argument('--show-success', action='store_const', const='success',
+						dest='stats_flag', help='Print successful jobs')
+	parser.add_argument('--show-timeout', action='store_const', const='timeout',
+						dest='stats_flag', help='Print timeouted jobs')
+	parser.add_argument('--reset-running', action='store_true',
+						dest='reset_running', help='Reset running jobs to available in DB')
+	parser.add_argument('--reset-failed', action='store_true',
+						dest='reset_failed', help='Reset failed jobs to available in DB')
+	parser.add_argument('--reset-timeout', action='store_true',
+						dest='reset_all', help='Reset all jobs to available in DB')
+	parser.add_argument('--reset-all', action='store_true',
+						dest='reset_all', help='Reset all jobs to available in DB')
+
+	# do not need since dropped looking joblog
+	# parser.add_argument('-p', '--push-tail', action='store', dest='push_tail', type=int,
+	# 					default=0, help='Push n true jobs to clean parallel tail. Tailing parallel have weird side effects such as last jobs not showing up on joblog. '
+	# 												'This makes counting jobs difficult and also restricts us to see the return value'
+	# 					)
+
+	arguments = parser.parse_args()
+	return arguments
+
+
+if __name__ == "__main__":
+	args = parse_arguments()
+	if args.debug_mode:
+		logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+	if args.set_config is not None:
+		set_conf_file(args.set_config)
+	conf = read_conf(args.conf)
+	cnxpool = open_connection(conf)
+	db = cnxpool.get_connection()
+	db.autocommit = False
+	if args.table_name is not None:
+		set_table_name(args.table_name)
+	if args.create_table:
+		create_table(db)
+	if args.command_file is not None:
+		commands_file = args.command_file
+		timeout = args.timeout
+		shuffle = args.shuffle
+		insert_commands_into_table(db, commands_file, timeout, shuffle)
+	if args.stats_flag is not None:
+		if args.stats_flag == 'stats':
+			show_stats(db)
+		elif args.stats_flag == 'all':
+			show_all_jobs(db)
+		elif args.stats_flag == 'failed':
+			show_failed_jobs(db)
+		elif args.stats_flag == 'success':
+			show_successful_jobs(db)
+		elif args.stats_flag == 'running':
+			show_running_jobs(db)
+		elif args.stats_flag == 'timeout':
+			show_timeouted_jobs(db)
+		elif args.stats_flag == "avail":
+			show_available_jobs(db)
+	elif args.reset_all:
+		reset_all_jobs(db)
+	elif args.reset_running:
+		reset_running_jobs(db)
+	elif args.reset_failed:
+		reset_failed(db)
+	elif args.run_flag:
+		clean_file(JOB_FILE)
+		clean_file(JOB_COUNTER)
+		extra_args = args.extra_args
+		nb_j = args.nb_jobs
+		sleepy_time = int(args.freq)
+		timeout = args.timeout
+		clever_requeue = args.auto_requeue
+		shuffle = args.shuffle
+		keep_running = args.keep_running
+		run_parallel(nb_j, extra_args)
+		signal.signal(signal.SIGINT, signal_handler)
+		signal.signal(signal.SIGTERM, signal_handler)
+		track_jobs(cnxpool, clever_requeue)
+		while True:
+			available_spots = nb_j - CURRENT_JOB_COUNT
+			logging.debug("Nb of available spots: {}".format(available_spots))
+			if available_spots > 0:
+				commands = fetch_jobs(db, available_spots, shuffle)
+				if len(commands) == 0 and CURRENT_JOB_COUNT == 0 and not keep_running:
+					break
+				wrap_commands(commands, timeout)
+				write_jobs_to_file(commands)
+			time.sleep(sleepy_time)
+	close_connection(db)

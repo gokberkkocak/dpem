@@ -1,0 +1,12 @@
+language: python
+python: 3.5 
+addons:
+  mariadb: '10.8'
+before_install:
+  - sudo apt-get install parallel
+  - mysql -e 'CREATE DATABASE IF NOT EXISTS test;'
+  - mkdir -p ~/.parallel
+  - touch ~/.parallel/will-cite
+install: pip install mysql-connector
+before_script: cd tests
+script: ./run_tests.sh

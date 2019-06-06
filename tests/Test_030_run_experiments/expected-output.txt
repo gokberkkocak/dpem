@@ -1,0 +1,136 @@
+DEBUG:root:Creating/replacing table
+DEBUG:root:Inserting into DB
+DEBUG:root:10 jobs inserted
+DEBUG:root:Nb of available spots: 1
+DEBUG:root:Fetching jobs
+DEBUG:root:Locking table
+DEBUG:root:Checking table use
+DEBUG:root:Locked
+DEBUG:root:1 jobs fetched
+DEBUG:root:Unlocking table
+DEBUG:root:Unlocked
+1
+DEBUG:root:Updating finished job
+DEBUG:root:Update completed.
+DEBUG:root:Nb of available spots: 1
+DEBUG:root:Fetching jobs
+DEBUG:root:Locking table
+DEBUG:root:Checking table use
+DEBUG:root:Locked
+DEBUG:root:1 jobs fetched
+DEBUG:root:Unlocking table
+DEBUG:root:Unlocked
+2
+DEBUG:root:Updating finished job
+DEBUG:root:Update completed.
+DEBUG:root:Nb of available spots: 1
+DEBUG:root:Fetching jobs
+DEBUG:root:Locking table
+DEBUG:root:Checking table use
+DEBUG:root:Locked
+DEBUG:root:1 jobs fetched
+DEBUG:root:Unlocking table
+DEBUG:root:Unlocked
+3
+DEBUG:root:Updating finished job
+DEBUG:root:Update completed.
+DEBUG:root:Nb of available spots: 1
+DEBUG:root:Fetching jobs
+DEBUG:root:Locking table
+DEBUG:root:Checking table use
+DEBUG:root:Locked
+DEBUG:root:1 jobs fetched
+DEBUG:root:Unlocking table
+DEBUG:root:Unlocked
+4
+DEBUG:root:Updating finished job
+DEBUG:root:Update completed.
+DEBUG:root:Nb of available spots: 1
+DEBUG:root:Fetching jobs
+DEBUG:root:Locking table
+DEBUG:root:Checking table use
+DEBUG:root:Locked
+DEBUG:root:1 jobs fetched
+DEBUG:root:Unlocking table
+DEBUG:root:Unlocked
+5
+DEBUG:root:Updating finished job
+DEBUG:root:Update completed.
+DEBUG:root:Nb of available spots: 1
+DEBUG:root:Fetching jobs
+DEBUG:root:Locking table
+DEBUG:root:Checking table use
+DEBUG:root:Locked
+DEBUG:root:1 jobs fetched
+DEBUG:root:Unlocking table
+DEBUG:root:Unlocked
+6
+DEBUG:root:Updating finished job
+DEBUG:root:Update completed.
+DEBUG:root:Nb of available spots: 1
+DEBUG:root:Fetching jobs
+DEBUG:root:Locking table
+DEBUG:root:Checking table use
+DEBUG:root:Locked
+DEBUG:root:1 jobs fetched
+DEBUG:root:Unlocking table
+DEBUG:root:Unlocked
+7
+DEBUG:root:Updating finished job
+DEBUG:root:Update completed.
+DEBUG:root:Nb of available spots: 1
+DEBUG:root:Fetching jobs
+DEBUG:root:Locking table
+DEBUG:root:Checking table use
+DEBUG:root:Locked
+DEBUG:root:1 jobs fetched
+DEBUG:root:Unlocking table
+DEBUG:root:Unlocked
+8
+DEBUG:root:Updating finished job
+DEBUG:root:Update completed.
+DEBUG:root:Nb of available spots: 1
+DEBUG:root:Fetching jobs
+DEBUG:root:Locking table
+DEBUG:root:Checking table use
+DEBUG:root:Locked
+DEBUG:root:1 jobs fetched
+DEBUG:root:Unlocking table
+DEBUG:root:Unlocked
+9
+DEBUG:root:Updating finished job
+DEBUG:root:Update completed.
+DEBUG:root:Nb of available spots: 1
+DEBUG:root:Fetching jobs
+DEBUG:root:Locking table
+DEBUG:root:Checking table use
+DEBUG:root:Locked
+DEBUG:root:1 jobs fetched
+DEBUG:root:Unlocking table
+DEBUG:root:Unlocked
+10
+DEBUG:root:Updating finished job
+DEBUG:root:Update completed.
+DEBUG:root:Nb of available spots: 1
+DEBUG:root:Fetching jobs
+DEBUG:root:Locking table
+DEBUG:root:Checking table use
+DEBUG:root:Locked
+DEBUG:root:0 jobs fetched
+DEBUG:root:Unlocking table
+DEBUG:root:Unlocked
+Available : 0
+Running   : 0
+Success   : 10
+Failed    : 0
+Timeout   : 0
+id: 00001 | status: 2 | cmd: echo 1
+id: 00002 | status: 2 | cmd: echo 2
+id: 00003 | status: 2 | cmd: echo 3
+id: 00004 | status: 2 | cmd: echo 4
+id: 00005 | status: 2 | cmd: echo 5
+id: 00006 | status: 2 | cmd: echo 6
+id: 00007 | status: 2 | cmd: echo 7
+id: 00008 | status: 2 | cmd: echo 8
+id: 00009 | status: 2 | cmd: echo 9
+id: 00010 | status: 2 | cmd: echo 10
