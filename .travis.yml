@@ -5,7 +5,7 @@ addons:
 before_install:
   - sudo apt-get install parallel
   - sudo mysql -e 'CREATE DATABASE IF NOT EXISTS test;'
-  - sudo mysql -e "GRANT ALL PRIVILEGES ON mydb.* TO 'travis'@'localhost';";
+  - sudo mysql -e "GRANT ALL PRIVILEGES ON test.* TO 'travis'@'%';";
   - mkdir -p ~/.parallel
   - touch ~/.parallel/will-cite
 install: pip install mysql-connector
