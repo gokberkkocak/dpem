@@ -217,8 +217,8 @@ def reset_failed(db_connection):
 	reset_jobs_with_code(db_connection, EXP_FAILED_FINISHED)
 
 
-def reset_timeouted(db_connection, timeout):
-	reset_jobs_with_code(db_connection, timeout)
+def reset_timeouted(db_connection):
+	reset_jobs_with_code(db_connection, EXP_TIMEOUTED)
 
 
 def reset_all_jobs(db_connection):
@@ -438,7 +438,7 @@ def mark_finished(db_connection, exp_id, exit_value):
 
 
 def multiple_timeout_by_2(command):
-	''' Mulitple timeout by 2 when clever requeue
+	''' Multiple timeout by 2 when clever requeue
 	'''
 	# extract timeout
 	# timeout 1 bash -c 'command'
@@ -538,7 +538,7 @@ def parse_arguments():
 	parser.add_argument('--reset-failed', action='store_true',
 						dest='reset_failed', help='Reset failed jobs to available in DB')
 	parser.add_argument('--reset-timeout', action='store_true',
-						dest='reset_all', help='Reset all jobs to available in DB')
+						dest='reset_timeouted', help='Reset all jobs to available in DB')
 	parser.add_argument('--reset-all', action='store_true',
 						dest='reset_all', help='Reset all jobs to available in DB')
 
@@ -592,6 +592,8 @@ if __name__ == "__main__":
 		reset_running_jobs(db)
 	elif args.reset_failed:
 		reset_failed(db)
+	elif args.reset_timeouted:
+		reset_timeouted(db)
 	elif args.run_flag:
 		clean_file(JOB_FILE)
 		clean_file(JOB_COUNTER)
