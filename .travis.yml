@@ -4,7 +4,7 @@ addons:
   mariadb: '10.4'
 before_install:
   - sudo apt-get install parallel
-  - mysql -e 'CREATE DATABASE IF NOT EXISTS test;'
+  - sudo  mysql -e 'CREATE DATABASE IF NOT EXISTS test;'
   - mkdir -p ~/.parallel
   - touch ~/.parallel/will-cite
 install: pip install mysql-connector
