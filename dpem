@@ -422,6 +422,8 @@ def check_jobcount_thread(db_connection, stdout):
 
 
 def mark_finished(db_connection, exp_id, exit_value):
+	# any other status indicates failure
+	status = EXP_FAILED_FINISHED
 	if exit_value == SUCCESS_EXIT_VALUE:
 		status = EXP_SUCCESS_FINISHED
 	elif exit_value == TIMEOUT_EXIT_VALUE:
