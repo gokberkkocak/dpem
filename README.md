@@ -1,4 +1,4 @@
-# dpem [![Build Status](https://travis-ci.com/gokberkkocak/dpem.svg?branch=master)](https://travis-ci.com/gokberkkocak/dpem)
+# dpem ![Tests](https://github.com/gokberkkocak/dpem/actions/workflows/ci.yml/badge.svg)
 ## distributed parallel experiment manager
 
 ## Dependencies
