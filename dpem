@@ -540,7 +540,7 @@ def parse_arguments():
 	parser.add_argument('--reset-failed', action='store_true',
 						dest='reset_failed', help='Reset failed jobs to available in DB')
 	parser.add_argument('--reset-timeout', action='store_true',
-						dest='reset_timeouted', help='Reset all jobs to available in DB')
+						dest='reset_timeouted', help='Reset timed out jobs to available in DB')
 	parser.add_argument('--reset-all', action='store_true',
 						dest='reset_all', help='Reset all jobs to available in DB')
 

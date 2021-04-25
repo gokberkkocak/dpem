@@ -56,6 +56,6 @@ optional arguments:
   --reset-running       Reset running jobs to available in DB
   --reset-failed        Reset failed jobs to available in DB
   --reset-timeout       Reset all jobs to available in DB
-  --reset-all           Reset all jobs to available in DB
+  --reset-all           Reset timed out to available in DB
   
   ```
