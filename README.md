@@ -21,7 +21,7 @@ optional arguments:
   -v, --version         show program's version number and exit
   -c CONF, --config CONF
                         DB Configuration file. (Default to search for is
-                        ~/.dpem/.conf.json)
+                        ~/.dpem/my.conf)
   -b, --table           Create or empty the table in DB
   -l COMMAND_FILE, --load COMMAND_FILE
                         Commands file to load
@@ -45,7 +45,7 @@ optional arguments:
                         Additional parallel arguments to pass. Use quotes
   --set-config SET_CONFIG
                         Take given conf file and save to the default conf
-                        location ~/.dpem/.conf.json
+                        location ~/.dpem/my.conf
   --stats               Experiment statistics
   --show-all            Print all jobs
   --show-avail          Print available jobs
