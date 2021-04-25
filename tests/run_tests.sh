@@ -5,7 +5,7 @@ set -o errexit
 CURRENTDIR=$(pwd)
 echo Current dir is $CURRENTDIR
 CHECKPROG=$(pwd)/../dpem
-CONFFILE=$(pwd)/.conf.json
+CONFFILE=$(pwd)/my.conf
 
 VERSION=$($CHECKPROG --version)
 
