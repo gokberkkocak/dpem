@@ -55,7 +55,7 @@ optional arguments:
   --show-timeout        Print timeouted jobs
   --reset-running       Reset running jobs to available in DB
   --reset-failed        Reset failed jobs to available in DB
-  --reset-timeout       Reset all jobs to available in DB
-  --reset-all           Reset timed out to available in DB
+  --reset-timeout       Reset timed out jobs to available in DB
+  --reset-all           Reset all jobs to available in DB
   
   ```
